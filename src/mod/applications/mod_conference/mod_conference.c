@@ -224,17 +224,13 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 
 	/* --- Optimized distribution variables --- */
 	int16_t *listener_frame;    /* Pre-clamped full mix for non-contributing members */
-	int16_t *silence_frame;     /* Pre-generated comfort noise frame */
 	uint8_t  listener_frame_ready;
-	uint8_t  silence_frame_ready;
-	uint32_t speaker_count;
 
 	file_frame = switch_core_alloc(conference->pool, SWITCH_RECOMMENDED_BUFFER_SIZE);
 	async_file_frame = switch_core_alloc(conference->pool, SWITCH_RECOMMENDED_BUFFER_SIZE);
 
-	/* Pre-allocated frames for the optimized distribution path */
+	/* Pre-allocated frame for the optimized distribution path */
 	listener_frame = (int16_t *) switch_core_alloc(conference->pool, SWITCH_RECOMMENDED_BUFFER_SIZE);
-	silence_frame  = (int16_t *) switch_core_alloc(conference->pool, SWITCH_RECOMMENDED_BUFFER_SIZE);
 
 	if (switch_core_timer_init(&timer, conference->timer_name, conference->interval, samples, conference->pool) == SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Setup timer success interval: %u  samples: %u\n", conference->interval, samples);
@@ -267,7 +263,6 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 
 		switch_mutex_lock(conference->mutex);
 		has_file_data = ready = total = 0;
-		speaker_count = 0;
 
 		floor_holder = conference->floor_holder;
 
@@ -389,7 +384,6 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 				imember->read = buf_read;
 				conference_utils_member_set_flag_locked(imember, MFLAG_HAS_AUDIO);
 				ready++;
-				speaker_count++;
 			}
 			switch_mutex_unlock(imember->audio_in_mutex);
 		}
@@ -623,9 +617,8 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 				}
 			}
 
-			/* --- BEGIN OPTIMIZATION: Pre-compute shared output frames --- */
+			/* --- BEGIN OPTIMIZATION: Pre-compute shared output frame --- */
 			listener_frame_ready = 0;
-			silence_frame_ready  = 0;
 
 			if (use_optimized) {
 				/* Pre-clamp the full mix into listener_frame (int16_t).
@@ -742,17 +735,6 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 							/* Now we can convert to 16 bit. */
 							switch_normalize_to_16bit(z);
 							write_frame[x] = (int16_t) z;
-						}
-
-						/* Apply per-member volume adjustment if configured */
-						if (omember->volume_out_level) {
-							switch_change_sln_volume(write_frame, samples * conference->channels,
-								omember->volume_out_level);
-						}
-
-						/* Mix in per-member file playback if active */
-						if (omember->fnode) {
-							conference_member_add_file_data(omember, write_frame, file_data_len);
 						}
 
 						if (!omember->channel || switch_channel_test_flag(omember->channel, CF_AUDIO)) {
