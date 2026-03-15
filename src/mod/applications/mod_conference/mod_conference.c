@@ -378,22 +378,9 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 
 			conference_utils_member_clear_flag_locked(imember, MFLAG_HAS_AUDIO);
 
-			if (conference_utils_member_test_flag(imember, MFLAG_CAN_SPEAK) &&
-				!conference_utils_member_test_flag(imember, MFLAG_HOLD)) {
-				/* Active members: always read the buffer under the mutex */
-				switch_mutex_lock(imember->audio_in_mutex);
-
-				if (switch_buffer_inuse(imember->audio_buffer) >= bytes
-					&& (buf_read = (uint32_t) switch_buffer_read(imember->audio_buffer, imember->frame, bytes))) {
-					imember->read = buf_read;
-					conference_utils_member_set_flag_locked(imember, MFLAG_HAS_AUDIO);
-					ready++;
-				}
-				switch_mutex_unlock(imember->audio_in_mutex);
-			} else if (switch_buffer_inuse(imember->audio_buffer) >= bytes) {
-				/* Muted/held members: only acquire the mutex if there is
-				   residual data in the buffer to drain. This avoids
-				   unnecessary mutex contention in large conferences. */
+			/* Skip the mutex if the buffer is empty — avoids unnecessary
+			   contention for muted/silent members in large conferences. */
+			if (switch_buffer_inuse(imember->audio_buffer) >= bytes) {
 				switch_mutex_lock(imember->audio_in_mutex);
 
 				if (switch_buffer_inuse(imember->audio_buffer) >= bytes
