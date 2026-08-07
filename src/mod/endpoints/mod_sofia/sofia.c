@@ -7233,8 +7233,16 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 
 			extract_header_vars(profile, sip, session, nh);
 			extract_vars(profile, sip, session);
-			switch_core_recovery_track(session);
+			/* Clear CF_RECOVERING *before* tracking. switch_core_recovery_track()
+			 * early-returns while CF_RECOVERING is set, so tracking here was a
+			 * no-op: the recovery row kept its stale pre-recovery CSeq/dialog
+			 * state. On a second crash FS rebuilt the re-INVITE from that stale
+			 * CSeq, the peer 200 OK could not be correlated, no ACK was sent,
+			 * and the call died with RECOVERY_ON_TIMER_EXPIRE. Clearing the flag
+			 * first lets track() persist the refreshed post-recovery dialog.
+			 * Ref: https://github.com/signalwire/freeswitch/issues/1833 */
 			switch_channel_clear_flag(tech_pvt->channel, CF_RECOVERING);
+			switch_core_recovery_track(session);
 		}
 
 	}
